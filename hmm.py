@@ -32,6 +32,7 @@ def loadData():
                 # Convert last column to datetime, then extract H:M:S, then convert to timedelta, then seconds since 12 AM
                 data['time'] = pd.to_timedelta(pd.to_datetime(data['time']).dt.strftime("%H:%M:%S"))
                 data['time'] = data['time'].dt.total_seconds()
+                data['user_id'] = int(user_id)
                 all_data = all_data.append(data, ignore_index=True)
                 if cur_day == MAX_DAYS_PER_USER:
                     break
