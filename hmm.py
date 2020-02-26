@@ -9,7 +9,7 @@ import math
 
 MAX_USERS = 1
 # Each file corresponds to an entire day, do we consider this one long path? What about different locations throughout the day?
-MAX_DAYS_PER_USER = 1
+MAX_DAYS_PER_USER = 20
 
 def loadData():
     # Import all data into pandas
@@ -55,62 +55,88 @@ def show_locations(df):
     plt.ylabel('locations')
     plt.show()
 
-def find_destinations(df, length_of_stay):
+def find_destinations(df, length_of_stay, show=False):
     length_of_stay *= 60 #convert to minutes
     last_time = df['time'][0]
     last_lat = df['lat'][0]
     last_long = df['long'][0]
+    last_user = df['user_id'][0]
     start_destination_index = 0
+    times = []
     lats = []
     longs = []
+    users = []
     indices = []
+    destinations = {}
     for i in range(len(df['lat'])):
         if df['lat'][i] != last_lat or df['long'][i] != last_long:
             if df['time'][i-1] - last_time >= length_of_stay:
-                lats.append(last_lat)
-                longs.append(last_long)
-                indices.append(start_destination_index)
+                if str((last_lat,last_long)) in destinations.keys():
+                    destinations[(last_lat,last_long)].append(last_time)
+                else:
+                     destinations[(last_lat,last_long)] = [last_time]
             last_time = df['time'][i]
             last_lat = df['lat'][i]
             last_long = df['long'][i]
+            last_user = df['user_id'][i]
             start_destination_index = i
 
-    destinations = pd.DataFrame()
+    df['time'][i] = last_time
 
-    destinations['long'] = longs
-    destinations['lat'] = lats
+    destinations_df = pd.DataFrame()
+    destinations_list = []
+    times_list = []
+    for i, d in enumerate(destinations):
+        for time in destinations[d]:
+            destinations_list.append(i)
+            times_list.append(time)
+            lats.append(d[0])
+            longs.append(d[1])
 
-    return destinations
+    destinations_df['destination'] = destinations_list
+    destinations_df['time'] = times_list
+#    destinations_df['user_id'] = users
+    destinations_df['long'] = longs
+    destinations_df['lat'] = lats
+    
+    if show:
+        show_destinations(destinations_df.concat)
+
+    return destinations_df[['destination', 'time']]
     
 def show_destinations(df):
     plt.scatter(df['lat'], df['long'])
     plt.ylabel('locations')
     plt.show()
 
-
 def HMM(X):
     # Cluster similar coordinates
-    X = cluster_points(X, .00005)
+    X = cluster_points(X, .0005)
     # show_locations(X)
-
+  
     # Find destinations based on 30 min stays
-    destinations_df = find_destinations(X, 1)
-    show_destinations(destinations_df)
+    destinations_df = find_destinations(X, .5)
 
     # Split 80/20
-    train_set = X.sample(frac=0.8, random_state=0)
-    test_set = X.drop(train_set.index)
+    train_set = destinations_df.sample(frac=0.8, random_state=0)
+    test_set = destinations_df.drop(train_set.index)
 
     print('\nTraining HMM...')
     # TODO: Look into what number this should be
-    num_components = 1
-    model = hmm.GaussianHMM(n_components=num_components, covariance_type='diag', n_iter=1000)
-    model.fit(train_set)
+    num_components = len(train_set)
+    model = hmm.GaussianHMM(n_components=1, covariance_type='diag', n_iter=100)
+    X = train_set.values.tolist()
+    model.fit(X)
 
-    hidden_states = model.predict(test_set)
-
-#    for i, state in enumerate(hidden_states):
-#        print(i, state)
+    hidden_states = model.predict(test_set[['destination']])
+    print("destinations_df")
+    print(destinations_df)
+    print("train_set")
+    print(train_set)
+    print("test_set")
+    print(test_set)
+    print("hidden_states")
+    print(hidden_states)
  
 
 if __name__ == "__main__":
