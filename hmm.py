@@ -68,10 +68,11 @@ def find_destinations(df, length_of_stay, show=False):
     users = []
     indices = []
     destinations = {}
+    sequence_length = 0
     for i in range(len(df['lat'])):
         if df['lat'][i] != last_lat or df['long'][i] != last_long:
             if df['time'][i-1] - last_time >= length_of_stay:
-                if str((last_lat,last_long)) in destinations.keys():
+                if (last_lat,last_long) in destinations.keys():
                     destinations[(last_lat,last_long)].append(last_time)
                 else:
                      destinations[(last_lat,last_long)] = [last_time]
@@ -116,28 +117,21 @@ def HMM(X):
   
     # Find destinations based on 30 min stays
     destinations_df = find_destinations(X, .5)
-
     # Split 80/20
-    train_set = destinations_df.sample(frac=0.8, random_state=0)
-    test_set = destinations_df.drop(train_set.index)
-
+    train_set = X[:round(len(X)*.8)]
+    test_set = X[round(len(X)*.8):]
     print('\nTraining HMM...')
     # TODO: Look into what number this should be
-    num_components = len(train_set)
-    model = hmm.GaussianHMM(n_components=1, covariance_type='diag', n_iter=100)
+    model = hmm.GaussianHMM(n_components=8, covariance_type='diag', n_iter=1000)
     X = train_set.values.tolist()
     model.fit(X)
 
-    hidden_states = model.predict(test_set[['destination']])
-    print("destinations_df")
-    print(destinations_df)
-    print("train_set")
-    print(train_set)
+    hidden_states = model.predict(test_set[['time']])
+    print(test_set['time'])
     print("test_set")
     print(test_set)
     print("hidden_states")
     print(hidden_states)
- 
 
 if __name__ == "__main__":
     data = loadData()
