@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 from sklearn.cluster import DBSCAN
-
+from hmm import loadData
 
 # Define a function to generate clusters
 def cluster_gen(n_clusters, pts_minmax=(10, 100), x_mult=(1, 4), y_mult=(1, 3), 
@@ -42,12 +42,28 @@ def cluster_gen(n_clusters, pts_minmax=(10, 100), x_mult=(1, 4), y_mult=(1, 3),
 n_clusters = 50
 clusters_x, clusters_y = cluster_gen(n_clusters)
 # Convert to a single dataset in OpenCV format
-data = np.float32((np.concatenate(clusters_x), np.concatenate(clusters_y))).transpose()
+df = loadData()[['long', 'lat']][:500]
+print(df['long'].tolist()[0])
+print(clusters_x[0])
+x = [[]]
+y = [[]]
+for cluster in clusters_x:
+    for point in cluster:
+        x[0].append(point)
+
+for cluster in clusters_y:
+    for point in cluster:
+        y[0].append(point)
+data = np.float32((np.concatenate([df['long'].tolist()]), np.concatenate([df['lat'].tolist()]))).transpose()
+#data = np.float32((np.concatenate(clusters_x), np.concatenate(clusters_y))).transpose()
+#data = np.float32((np.concatenate(x), np.concatenate(y))).transpose()
 # Define max_distance (eps parameter in DBSCAN())
-max_distance = 1
-print(data)
+max_distance = .00005
+print(len(clusters_x))
+print(len(df['long'].tolist()))
+print("*******************")
 db = DBSCAN(eps=max_distance, min_samples=10).fit(data)
-print(data)
+print("here1")
 # Extract a mask of core cluster members
 core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
 core_samples_mask[db.core_sample_indices_] = True
@@ -55,7 +71,7 @@ core_samples_mask[db.core_sample_indices_] = True
 labels = db.labels_
 n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
 unique_labels = set(labels)
-
+print("here2")
 # Plot up the results!
 min_x = np.min(data[:, 0])
 max_x = np.max(data[:, 0])
@@ -69,6 +85,7 @@ plt.xlim(min_x, max_x)
 plt.ylim(min_y, max_y)
 plt.title('Original Data', fontsize = 20)
 
+print("here3")
 plt.subplot(122)
 # The following is just a fancy way of plotting core, edge and outliers
 # Credit to: http://scikit-learn.org/stable/auto_examples/cluster/plot_dbscan.html#sphx-glr-auto-examples-cluster-plot-dbscan-py
@@ -79,7 +96,6 @@ for k, col in zip(unique_labels, colors):
         col = [0, 0, 0, 1]
 
     class_member_mask = (labels == k)
-
     xy = data[class_member_mask & core_samples_mask]
     plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
              markeredgecolor='k', markersize=7)
