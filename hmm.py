@@ -424,14 +424,13 @@ if __name__ == "__main__":
     data = load_data()
     
     train_dfs, test_dfs = prepare_data(data)
-   
-    """
+    
     with open('train_dfs.data', 'wb') as f:
         pickle.dump(train_dfs, f)
 
     with open('test_dfs.data', 'wb') as f:
         pickle.dump(test_dfs, f)
-    """
+    
     with open('train_dfs.data', 'rb') as f:
         train_dfs = pickle.load(f)
 
