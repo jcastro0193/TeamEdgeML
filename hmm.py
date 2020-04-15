@@ -8,18 +8,18 @@ import math
 from sklearn.cluster import DBSCAN
 import numpy as np
 
-MAdf_USERS = 1
+MAX_USERS = 1
 # Each file corresponds to an entire day, do we consider this one long path? What about different locations throughout the day?
-MAdf_DAYS_PER_USER = 1
+MAX_DAYS_PER_USER = 1
 
 def load_data():
     # Import all data into pandas
     header_list = ['long', 'lat', 'time']
-    all_data = pd.DataFrame(columns=header_list)
+    all_data = []
     cur_user = 0
     cur_day=0
     for (root, dirs, files) in os.walk('GeolifeTrajectories1.3/Data', topdown=True):
-        if cur_user == MAdf_USERS:
+        if cur_user == MAX_USERS:
             break
         if root.rsplit('/', 1)[-1] == "Trajectory":
             # We have enterd a specific user's Trajectory folder
@@ -34,16 +34,22 @@ def load_data():
                 data['time'] = pd.to_datetime(data['time'])
                 data['time'] = data['time'].dt.hour
                 data['user_id'] = int(user_id)
-                all_data = all_data.append(data, ignore_index=True)
-                if cur_day == MAdf_DAYS_PER_USER:
+                all_data.append(data)
+                if cur_day == MAX_DAYS_PER_USER:
                     break
-    
-    all_data = all_data.reset_index()
+
     return all_data
 
-def cluster_points(df, max_distance, min_samples=5, points_to_use=50, show=False):
-    df = df[:(points_to_use if points_to_use < len(df) else len(df))]
-    data = np.float32((np.concatenate([df['long'].tolist()]), np.concatenate([df['lat'].tolist()]))).transpose()
+def cluster_points(all_data, max_distance, min_samples=5, points_to_use=50, show=False):
+    all_longs = []
+    all_lats = []
+
+    # Extract coordinates from all df's
+    for df in all_data:
+        all_longs += df['long'].tolist()
+        all_lats += df['lat'].tolist()
+
+    data = np.float32((np.concatenate([all_longs]), np.concatenate([all_lats]))).transpose()
     # Define max_distance (eps parameter in DBSCAN())
     db = DBSCAN(eps=max_distance, min_samples=min_samples).fit(data)
     # Extract a mask of core cluster members
@@ -51,16 +57,28 @@ def cluster_points(df, max_distance, min_samples=5, points_to_use=50, show=False
     core_samples_mask[db.core_sample_indices_] = True
     # Extract labels (-1 is used for outliers)
     labels = db.labels_
-    df = df.assign(cluster_label=pd.Series(labels))
-    n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-    unique_labels = set(labels)
+    # Assign centroid labels to all dataframes
+    cur_i = 0
+    for i, df in enumerate(all_data):
+        df_length = all_data[i].shape[0]
+        all_data[i] = all_data[i].assign(cluster_label=pd.Series(labels[cur_i:cur_i+df_length]))
+        cur_i += df_length
+
     if show:
         # Plot up the results!
+        
+
+        # Get certain quantities to use in plots
+        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+        unique_labels = set(labels)
+
+        # Get plot boundaris
         min_x = np.min(data[:, 0])
         max_x = np.max(data[:, 0])
         min_y = np.min(data[:, 1])
         max_y = np.max(data[:, 1])
 
+        # Create plot window layouts
         fig = plt.figure(figsize=(12,6))
         plt.subplot(121)
         plt.plot(data[:,0], data[:,1], 'ko')
@@ -93,22 +111,27 @@ def cluster_points(df, max_distance, min_samples=5, points_to_use=50, show=False
         plt.subplots_adjust(left=0.03, right=0.98, top=0.9, bottom=0.05)
         plt.show()
     
-    return df
+    return all_data
 
-def get_centroids(df, show=False):
+def get_centroids(all_data, show=False):
     # Set up empty container
     labels = {}
-    clusters = len(set(df['cluster_label'].tolist()))
-    for label in set(df['cluster_label']):
-        labels[label] = {}
-        labels[label]['long'] = []
-        labels[label]['lat'] = []
+    clusters = 0
+    for df in all_data:
+        clusters += len(set(df['cluster_label'].tolist()))
+    
+    for df in all_data:
+        for label in set(df['cluster_label']):
+            labels[label] = {}
+            labels[label]['long'] = []
+            labels[label]['lat'] = []
 
     # Insert elements into container
-    for point in df.itertuples():
-        label = point.cluster_label
-        labels[label]['long'].append(point.long)
-        labels[label]['lat'].append(point.lat)
+    for df in all_data:
+        for point in df.itertuples():
+            label = point.cluster_label
+            labels[label]['long'].append(point.long)
+            labels[label]['lat'].append(point.lat)
 
     # Get average of each cluster
     for label in labels:
@@ -143,7 +166,7 @@ def get_centroids(df, show=False):
     if show:
         show_centroids(df, centroids_df)
 
-    return df, centroids_df
+    return centroids_df
 
 def show_centroids(df, centroids_df):
 
@@ -250,36 +273,44 @@ def show_destinations(df):
     plt.ylabel('locations')
     plt.show()
 
-def map_points(df, centroids_df, max_distance, show=False):
+def map_points(all_data, centroids_df, max_distance, show=False):
 
-    df = df.assign(centroid_index=pd.Series([None]*len(df), dtype=pd.Int64Dtype()))
-    count = 0
-    for i, point in enumerate(df.itertuples()):
-        min_centroid = None
-        min_distance = None
-        for j, centroid in enumerate(centroids_df.itertuples()):
-            distance = ((point.long - centroid.long)**2 + (point.long - centroid.long)**2)**.5
+    print("Entering map points###################################")
+    print(all_data)
+    for k, df in enumerate(all_data):
+        df = df.assign(centroid_index=pd.Series([None]*len(df), dtype=pd.Int64Dtype()))
+        count = 0
+        for i, point in enumerate(df.itertuples()):
+            min_centroid = None
+            min_distance = None
+            for j, centroid in enumerate(centroids_df.itertuples()):
+                distance = ((point.long - centroid.long)**2 + (point.long - centroid.long)**2)**.5
 
-            # If centroid too far, skip
-            if distance > max_distance:
-                continue
+                # If centroid too far, skip
+                if distance > max_distance:
+                    continue
 
-            # Check if already centroid assigned
-            if not min_centroid:
-                min_centroid = centroid
-                min_distance = distance
+                # If first centroid, initialize.
+                if not min_centroid:
+                    min_centroid = centroid
+                    min_distance = distance
             
-            # Check if centroid is closer
-            if distance < min_distance:
-                min_distance = distance
-                min_centroid = centroid
+                # Check if centroid is new closest
+                if distance < min_distance:
+                    min_distance = distance
+                    min_centroid = centroid
     
         # If centroid found, assign centroid to point
         if min_centroid:
             count += 1
             df.at[point.Index, 'centroid_index'] = min_centroid.Index
-    
-    new_df = df[df['centroid_index'].notna()]
+        
+        print("new_df with notnull() on cluster_label")
+        print(df[df['cluster_label'] != -1])
+        
+        print("new df:")
+        print(df)
+        all_data[k] = df[df['centroid_index'].notna()]
 
     if show:
         data = np.float32((np.concatenate([df['long'].tolist()]), np.concatenate([df['lat'].tolist()]))).transpose()
@@ -312,39 +343,50 @@ def map_points(df, centroids_df, max_distance, show=False):
         plt.subplots_adjust(left=0.03, right=0.98, top=0.9, bottom=0.05)
         plt.show()
     
-    return new_df
+    print("Exiting map points###################################")
+    print(all_data)
+    return all_data
     
-def get_path(df):
-    indices = []
-    old_centroid = -1
-    for data in df.itertuples():
-        if data.centroid_index == old_centroid:
-            indices.append(False)
-            continue
+def get_path(all_data):
+    print("In get path###################################")
+    print(all_data)
+    for i, df in enumerate(all_data):
+        indices = []
+        old_centroid = -1
+        for data in df.itertuples():
+            if data.centroid_index == old_centroid:
+                indices.append(False)
+                continue
 
-        indices.append(True)
-        old_centroid = data.centroid_index
+            indices.append(True)
+            old_centroid = data.centroid_index
 
-    path = df[indices]
+        all_data[i] = df[indices].reset_index()
 
-    return path.reset_index()
+    return all_data
 
-def prepare_data(df):
+def prepare_data(all_data):
     # Cluster similar coordinates
     eps = 0.000008
     min_samples = 3
-    df = cluster_points(df, eps, min_samples, points_to_use=500)
-    df, centroids_df = get_centroids(df)
+    all_data = cluster_points(all_data, eps, min_samples, points_to_use=500)
+    centroids_df = get_centroids(all_data)
      
+    """ TODO(joel): Find if we still need this
     # Find destinations based on 30 min stays
     # destinations_df = find_destinations(df, .5)
-    
+    """
+
     # Map points to centroids
     max_distance = .00001
-    df = map_points(df, centroids_df, max_distance)
-    
+    print("before map_points######################")
+    print(all_data)
+    all_data = map_points(all_data, centroids_df, max_distance)
+    print("after map_points######################")
+    print(all_data)
+   
     # Get path (remove unbroken chains of GPS coordinates at same location)
-    df = get_path(df)
+    data = get_path(all_data)
 
     # Split 80/20
     train_df = df[:round(len(df)*.8)]
@@ -352,59 +394,78 @@ def prepare_data(df):
 
     return train_df, test_df
     
-def get_transition_probabilities(df):
-    n_centroids = max(set(df['centroid_index']))+1
-    transitions = [[0 for _ in range(n_centroids)] for _ in range(n_centroids)]
-    n_transitions = 0
-    old_index = df['centroid_index'].tolist()[0]
-    for new_index in df['centroid_index'].tolist():
-        if old_index != new_index:
-            old_index = new_index
-            n_transitions += 1
-            transitions[old_index][new_index] += 1
+class HMM():
 
-    # Normalize transition probabilities... all of them sum to 1
-    transitions = [[num/n_transitions for num in _list] for _list in transitions]
+    def fit(self, df):
+
+        # Compute initialization probabilities
+        self.initialization = self.get_initialization_probabilities(df)
+
+        # Compute transition probabilities
+        self.transitions = self.get_transition_probabilities(df)
+
+         # Compute emission probabilities
+        self.emissions = self.get_emission_probabilities(df)
+
+    def get_initial_probabilities(df):
+        n_centroids = max(set(df['centroid_index']))+1
+        initializations = [0 for _ in range(n_centroids)]
+        n_initializations = 0
+        for data in df.itertuples()[0]:
+            initializations[data.centroid_index] += 1
+            n_initializations += 1
+
+         # Normalize transition probabilities... all of them sum to 1
+        initializations = [num/n_emissions for num in initializations]
+
+        return initializations
+
+    def get_transition_probabilities(df):
+        n_centroids = max(set(df['centroid_index']))+1
+        transitions = [[0 for _ in range(n_centroids)] for _ in range(n_centroids)]
+        n_transitions = 0
+        old_index = df['centroid_index'].tolist()[0]
+        for new_index in df['centroid_index'].tolist():
+            if old_index != new_index:
+                old_index = new_index
+                n_transitions += 1
+                transitions[old_index][new_index] += 1
+
+        # Normalize transition probabilities... all of them sum to 1
+        transitions = [[num/n_transitions for num in _list] for _list in transitions]
     
-    return transitions
+        return transitions
 
-def get_emission_probabilities(df):
-    n_hours = 24
-    emissions = [[0 for _ in range(n_hours)] for _ in range(max(df['centroid_index'].tolist())+1)]
-    n_emissions = 0
-    for data in df.itertuples():
-        emissions[data.centroid_index][data.time] += 1
-        n_emissions += 1
+    def get_emission_probabilities(df):
+        n_hours = 24
+        emissions = [[0 for _ in range(n_hours)] for _ in range(max(df['centroid_index'].tolist())+1)]
+        n_emissions = 0
+        for data in df.itertuples():
+            emissions[data.centroid_index][data.time] += 1
+            n_emissions += 1
 
-     # Normalize transition probabilities... all of them sum to 1
-    emissions = [[num/n_emissions for num in _list] for _list in emissions]
+         # Normalize transition probabilities... all of them sum to 1
+        emissions = [[num/n_emissions for num in _list] for _list in emissions]
     
-    return emissions
+        return emissions
 
-def HMM(df):
+    def predict(df):
 
-    # Get transition probabilities
-    transitions = get_transition_probabilities(df)
+        if k==1:
+            return self.initializations[centroid_index]*self.emission[centroid_index][observation]
 
-     # Get transition probabilities
-    emissions = get_emission_probabilities(df)
-    
-    print('\nTraining HMM...')
-    
-    """ TODO(joel): Completely replace this
-    # TODO: Look into what number this should be
-    model = hmm.GaussianHMM(n_components=8, covariance_type='diag', n_iter=1000)
-    df = df.values.tolist()
-    model.fit(df)
-    hidden_states = model.predict(test_set[['time']])
-    """
-    print(test_set['time'])
-    print("test_set")
-    print(test_set)
-    print("hidden_states")
-    print(hidden_states)
+        _sum = 0
+        for centroid in centroid_list:
+            emission_prob = self.emissions[centroid_index][observation]
+            transition_prob = self.transition[centroid_before][centroid]
+            recursive_prob = predict(df)
+            _sum += emission_prob*transition_prob*recursive_prob
+
+        return _sum
+
 
 if __name__ == "__main__":
     data = load_data()
     train_df, test_df = prepare_data(data)
-    HMM(train_df)
+    hmm = HMM()
+    hmm.fit(train_df)
