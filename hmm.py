@@ -1,49 +1,81 @@
 import datetime
-import numpy as np
 from hmmlearn import hmm
+import math
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import pandas as pd
-import math
-from sklearn.cluster import DBSCAN
-import numpy as np
 import pickle
+import random
+from sklearn.cluster import DBSCAN
 
-MAX_USERS = 1
-# Each file corresponds to an entire day, do we consider this one long path? What about different locations throughout the day?
-MAX_DAYS_PER_USER = 10
-
-def load_data():
+def load_data(specific_user=None, n_weeks=None, max_users=None, max_days_per_user=None):
     # Import all data into pandas
-    header_list = ['long', 'lat', 'time']
-    all_data = pd.DataFrame(columns=header_list)
+    header_list = ['long', 'lat', 'date', 'time']
     cur_user = 0
-    for (root, dirs, files) in os.walk('GeolifeTrajectories1.3/Data', topdown=True):
-        if cur_user == MAX_USERS:
+    if not specific_user:
+        _dir = 'GeolifeTrajectories1.3/Data'
+    else:
+        _dir = 'GeolifeTrajectories1.3/Data/{}/Trajectory'.format(specific_user)
+    for (root, dirs, files) in os.walk(_dir, topdown=True):
+        if max_users and cur_user == max_users:
             break
         if root.rsplit('/', 1)[-1] == "Trajectory":
-            # We have enterd a specific user's Trajectory folder
+            # We have entered a specific user's Trajectory folder
             cur_user += 1 
-        user_id = root.rsplit('/', 2)[-2]
-        cur_day=0
-        for i, fname in enumerate(files):
-            if fname[-3:] == "plt":
-                cur_day += 1
-                ## Get latitude, longitude, and days since 12/30/1899.
-                data = pd.read_csv(os.path.join(root, fname), names=header_list, skiprows=6, usecols=[0,1,6])
-                # Convert last column to datetime, then extract H:M:S, then convert to timedelta, then seconds since 12 AM
-                data['time'] = pd.to_datetime(data['time'])
-                data['time'] = data['time'].dt.hour
-                data['user_id'] = int(user_id)
-                data['path_id'] = i
-                all_data = all_data.append(data, ignore_index=True)
-                if cur_day == MAX_DAYS_PER_USER:
-                    break
-    
-    all_data = all_data.reset_index()
-    return all_data
+            user_id = root.rsplit('/', 2)[-2]
+            found_start_of_week = False
+            start_of_week = None
+            seconds_in_week = 604800
+            
+        # Find start week that will lead to most data in given timespan
+        final_data = pd.DataFrame()
+        final_start_file = 0
+        for start_file in [528]:#range(len(files)):
+            all_data = pd.DataFrame(columns=header_list)
+            found_start_of_week = False
+            print('Starting at {} out of {}'.format(start_file, len(files)))
+            cur_day=0
+            for i, fname in enumerate(sorted(files)[start_file:]):
+                if fname[-3:] == "plt":
+                    print('  Current file: {}'.format(fname))
+                    cur_day += 1
+                    ## Get latitude, longitude, and days since 12/30/1899.
+                    data = pd.read_csv(os.path.join(root, fname), names=header_list, skiprows=6, usecols=[0,1,5,6])
+                    # Convert last column to datetime, then extract H:M:S, then convert to timedelta, then seconds since 12 AM
+                    data['hour'] = pd.to_datetime(data['time'])
+                    data['hour'] = data['hour'].dt.hour
+                    # Get unix seconds
+                    data['seconds'] = pd.to_datetime(data['date'], origin='unix').astype(np.int64) // 10**9
+                    data['user_id'] = int(user_id)
+                    data['path_id'] = i
+                
+                    if not found_start_of_week:
+                        found_start_of_week = True
+                        start_of_week = data['seconds'].tolist()[0]
+            
+                    # If outside of n week span
+                    if found_start_of_week and data['seconds'].tolist()[0] > start_of_week + seconds_in_week*n_weeks:
+                        break
 
-def cluster_points(df, max_distance, min_samples=5, show=True):
+                    all_data = all_data.append(data, ignore_index=True)
+
+                    if max_days_per_user and cur_day == max_days_per_user:
+                        break
+    
+            # Check if resulting dataframe is larger current max
+            if all_data.shape[0] > final_data.shape[0]:
+                print('Old length: {}'.format(final_data.shape[0]))
+                print('  Updated: {}'.format(all_data.shape[0]))
+                found_start_of_week = False
+                final_data = all_data
+                final_start_file = start_file
+   
+    print('Final start file: {}'.format(final_start_file))
+    final_data = final_data.reset_index()
+    return final_data
+
+def cluster_points(df, max_distance, min_samples=5, show=False):
     data = np.float32((np.concatenate([df['long'].tolist()]), np.concatenate([df['lat'].tolist()]))).transpose()
     # Define max_distance (eps parameter in DBSCAN())
     db = DBSCAN(eps=max_distance, min_samples=min_samples).fit(data)
@@ -95,7 +127,7 @@ def cluster_points(df, max_distance, min_samples=5, show=True):
         plt.show()
     return df
 
-def get_centroids(df, show=True):
+def get_centroids(df, show=False):
     # Set up empty container
     labels = {}
     clusters = len(set(df['cluster_label'].tolist()))
@@ -195,9 +227,9 @@ def show_centroids(df, centroids_df):
     plt.show()
 """
 
-def find_destinations(df, length_of_stay, show=True):
+def find_destinations(df, length_of_stay, show=False):
     length_of_stay *= 60 #convert to minutes
-    last_time = df['time'][0]
+    last_time = df['hour'][0]
     last_lat = df['lat'][0]
     last_long = df['long'][0]
     last_user = df['user_id'][0]
@@ -211,18 +243,18 @@ def find_destinations(df, length_of_stay, show=True):
     sequence_length = 0
     for i in range(len(df['lat'])):
         if df['lat'][i] != last_lat or df['long'][i] != last_long:
-            if df['time'][i-1] - last_time >= length_of_stay:
+            if df['hour'][i-1] - last_time >= length_of_stay:
                 if (last_lat,last_long) in destinations.keys():
                     destinations[(last_lat,last_long)].append(last_time)
                 else:
                      destinations[(last_lat,last_long)] = [last_time]
-            last_time = df['time'][i]
+            last_time = df['hour'][i]
             last_lat = df['lat'][i]
             last_long = df['long'][i]
             last_user = df['user_id'][i]
             start_destination_index = i
 
-    df['time'][i] = last_time
+    df['hour'][i] = last_time
 
     destinations_df = pd.DataFrame()
     destinations_list = []
@@ -235,7 +267,7 @@ def find_destinations(df, length_of_stay, show=True):
             longs.append(d[1])
 
     destinations_df['destination'] = destinations_list
-    destinations_df['time'] = times_list
+    destinations_df['hour'] = times_list
 #    destinations_df['user_id'] = users
     destinations_df['long'] = longs
     destinations_df['lat'] = lats
@@ -250,7 +282,7 @@ def show_destinations(df):
     plt.ylabel('locations')
     plt.show()
 
-def map_points(df, centroids_df, max_distance, show=True):
+def map_points(df, centroids_df, max_distance, show=False):
 
     df = df.assign(centroid_index=pd.Series([None]*len(df), dtype=pd.Int64Dtype()))
     count = 0
@@ -341,10 +373,9 @@ def get_paths(df):
 
 def prepare_data(df):
     # Cluster similar coordinates
-    eps = 0.000008
+    eps = 0.00008
     min_samples = 3
     df = cluster_points(df, eps, min_samples)
-
     centroids_df = get_centroids(df)
     
     """ TODO(joel): Check to see if we'll ever need this
@@ -358,11 +389,14 @@ def prepare_data(df):
     # Get path (remove unbroken chains of GPS coordinates at same location)
     dfs = get_paths(df)
     
-    # Split 80/20
-    train_df = dfs[:round(len(dfs)*.8)-1]
-    test_df = dfs[round(len(dfs)*.8)-1:]
+    print('Number of days: {}'.format(len(dfs)))
     
-    return train_df, test_df
+    # Split 80/20
+    train_indices = random.sample(range(1, len(dfs)), round(len(dfs)*.8))
+    train_dfs = [df for i, df in enumerate(dfs) if i in train_indices]
+    test_dfs = [df for i, df in enumerate(dfs) if i not in train_indices]
+     
+    return train_dfs, tests_dfs
     
 class HMM:
 
@@ -373,17 +407,20 @@ class HMM:
         self.transitions = self.get_transition_probabilities(dfs)
 
         # Get transition probabilities
-        self.emissions = self.get_emission_probabilities(dfs)
+        #self.emissions = self.get_emission_probabilities(dfs)
 
     def predict(self, dfs):
-
         predictions = []
-        for df in dfs:
+        for i, df in enumerate(dfs):
+            if df.shape[0] in (0, 1):
+                continue
             last_location = df['centroid_index'][df.shape[0]-2] # -2 in order to get location before last one
             if last_location >= len(self.transitions):
-                predictions.append(-1)
-            decision = self.transitions[last_location].index(max(self.transitions[last_location]))
-            predictions.append([decision, df['centroid_index'][df.shape[0]-1]])
+                prediction = -1
+            else:
+                prediction = self.transitions[last_location].index(max(self.transitions[last_location]))
+            truth = df['centroid_index'][df.shape[0]-1]
+            predictions.append([prediction, truth])
         
         return predictions
 
@@ -421,23 +458,24 @@ class HMM:
 
 
 if __name__ == "__main__":
-    data = load_data()
+    for n_weeks in [2, 4, 8]:
+        data = load_data(specific_user=153, n_weeks=n_weeks)
     
-    train_dfs, test_dfs = prepare_data(data)
+        train_dfs, test_dfs = prepare_data(data)
+        """ 
+        with open('train_dfs.data', 'wb') as f:
+            pickle.dump(train_dfs, f)
+
+        with open('test_dfs.data', 'wb') as f:
+            pickle.dump(test_dfs, f)
     
-    with open('train_dfs.data', 'wb') as f:
-        pickle.dump(train_dfs, f)
+        with open('train_dfs.data', 'rb') as f:
+            train_dfs = pickle.load(f)
 
-    with open('test_dfs.data', 'wb') as f:
-        pickle.dump(test_dfs, f)
-    
-    with open('train_dfs.data', 'rb') as f:
-        train_dfs = pickle.load(f)
-
-    with open('test_dfs.data', 'rb') as f:
-        test_dfs = pickle.load(f)
-
-    hmm = HMM()
-    hmm.train(train_dfs)
-    predictions = hmm.predict(test_dfs)
-    print(predictions)
+        with open('test_dfs.data', 'rb') as f:
+            test_dfs = pickle.load(f)
+        """
+        hmm = HMM()
+        hmm.train(train_dfs)
+        predictions = hmm.predict(test_dfs)
+        print(predictions)
