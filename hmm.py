@@ -31,14 +31,14 @@ def load_data(specific_user=None, n_weeks=None, max_users=None, max_days_per_use
         # Find start week that will lead to most data in given timespan
         final_data = pd.DataFrame()
         final_start_file = 0
-        for start_file in [528]:#range(len(files)):
+        for start_file in range(len(files)):
             all_data = pd.DataFrame(columns=header_list)
             found_start_of_week = False
-            print('Starting at {} out of {}'.format(start_file, len(files)))
+            #print('Starting at {} out of {}'.format(start_file, len(files)))
             cur_day=0
             for i, fname in enumerate(sorted(files)[start_file:]):
                 if fname[-3:] == "plt":
-                    print('  Current file: {}'.format(fname))
+                    # print('  Current file: {}'.format(fname))
                     cur_day += 1
                     ## Get latitude, longitude, and days since 12/30/1899.
                     data = pd.read_csv(os.path.join(root, fname), names=header_list, skiprows=6, usecols=[0,1,5,6])
@@ -65,8 +65,8 @@ def load_data(specific_user=None, n_weeks=None, max_users=None, max_days_per_use
     
             # Check if resulting dataframe is larger current max
             if all_data.shape[0] > final_data.shape[0]:
-                print('Old length: {}'.format(final_data.shape[0]))
-                print('  Updated: {}'.format(all_data.shape[0]))
+                #print('Old length: {}'.format(final_data.shape[0]))
+                #print('  Updated: {}'.format(all_data.shape[0]))
                 found_start_of_week = False
                 final_data = all_data
                 final_start_file = start_file
@@ -389,19 +389,19 @@ def prepare_data(df):
     # Get path (remove unbroken chains of GPS coordinates at same location)
     dfs = get_paths(df)
     
-    print('Number of days: {}'.format(len(dfs)))
+    #print('Number of days: {}'.format(len(dfs)))
     
     # Split 80/20
     train_indices = random.sample(range(1, len(dfs)), round(len(dfs)*.8))
     train_dfs = [df for i, df in enumerate(dfs) if i in train_indices]
     test_dfs = [df for i, df in enumerate(dfs) if i not in train_indices]
      
-    return train_dfs, tests_dfs
+    return train_dfs, test_dfs
     
 class HMM:
 
     def train(self, dfs):
-        print('\nTraining HMM...')
+        #print('\nTraining HMM...')
 
         # Get transition probabilities
         self.transitions = self.get_transition_probabilities(dfs)
@@ -456,26 +456,34 @@ class HMM:
 
         return emissions
 
-
+starting_files = [32, 320]
 if __name__ == "__main__":
-    for n_weeks in [2, 4, 8]:
-        data = load_data(specific_user=153, n_weeks=n_weeks)
-    
-        train_dfs, test_dfs = prepare_data(data)
-        """ 
-        with open('train_dfs.data', 'wb') as f:
-            pickle.dump(train_dfs, f)
+    for user in ['125', '017', '153']:
+        print('User: {}'.format(user))
+        for n_weeks in [2]:
+            print('  Weeks: {}'.format(n_weeks))
+            data = load_data(specific_user=user, n_weeks=n_weeks)
+            train_dfs, test_dfs = prepare_data(data)
+            """ 
+            with open('train_dfs.data', 'wb') as f:
+                pickle.dump(train_dfs, f)
 
-        with open('test_dfs.data', 'wb') as f:
-            pickle.dump(test_dfs, f)
+            with open('test_dfs.data', 'wb') as f:
+                pickle.dump(test_dfs, f)
     
-        with open('train_dfs.data', 'rb') as f:
-            train_dfs = pickle.load(f)
+            with open('train_dfs.data', 'rb') as f:
+                train_dfs = pickle.load(f)
 
-        with open('test_dfs.data', 'rb') as f:
-            test_dfs = pickle.load(f)
-        """
-        hmm = HMM()
-        hmm.train(train_dfs)
-        predictions = hmm.predict(test_dfs)
-        print(predictions)
+            with open('test_dfs.data', 'rb') as f:
+                test_dfs = pickle.load(f)
+            """
+            hmm = HMM()
+            hmm.train(train_dfs)
+            predictions = hmm.predict(test_dfs)
+            print('Predictions: {}'.format(len(predictions)))
+            correct = 0
+            for prediction in predictions:
+                if prediction[0] == prediction[1]:
+                    correct += 1
+            accuracy = correct/len(predictions)
+            print('    Accuracy: {}'.format(accuracy))
