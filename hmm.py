@@ -9,7 +9,7 @@ import pickle
 import random
 from sklearn.cluster import DBSCAN
 
-def load_data(specific_user=None, n_weeks=None, max_users=None, max_days_per_user=None):
+def load_data(specific_user=None, starting_file=None, n_weeks=None, max_users=None, max_days_per_user=None):
     # Import all data into pandas
     header_list = ['long', 'lat', 'date', 'time']
     cur_user = 0
@@ -31,7 +31,7 @@ def load_data(specific_user=None, n_weeks=None, max_users=None, max_days_per_use
         # Find start week that will lead to most data in given timespan
         final_data = pd.DataFrame()
         final_start_file = 0
-        for start_file in range(len(files)):
+        for start_file in [starting_file]:
             all_data = pd.DataFrame(columns=header_list)
             found_start_of_week = False
             #print('Starting at {} out of {}'.format(start_file, len(files)))
@@ -71,7 +71,6 @@ def load_data(specific_user=None, n_weeks=None, max_users=None, max_days_per_use
                 final_data = all_data
                 final_start_file = start_file
    
-    print('Final start file: {}'.format(final_start_file))
     final_data = final_data.reset_index()
     return final_data
 
@@ -456,13 +455,13 @@ class HMM:
 
         return emissions
 
-starting_files = [32, 320]
+starting_files = [32, 320, 528]
 if __name__ == "__main__":
-    for user in ['125', '017', '153']:
+    for i, user in enumerate(['125', '017', '153']):
         print('User: {}'.format(user))
-        for n_weeks in [2]:
+        for n_weeks in [2, 4, 8]:
             print('  Weeks: {}'.format(n_weeks))
-            data = load_data(specific_user=user, n_weeks=n_weeks)
+            data = load_data(specific_user=user, starting_file=starting_files[i], n_weeks=n_weeks)
             train_dfs, test_dfs = prepare_data(data)
             """ 
             with open('train_dfs.data', 'wb') as f:
