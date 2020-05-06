@@ -31,7 +31,7 @@ def load_data(specific_user=None, starting_file=None, n_weeks=None, max_users=No
         # Find start week that will lead to most data in given timespan
         final_data = pd.DataFrame()
         final_start_file = 0
-        for start_file in [starting_file]:
+        for start_file in [starting_file]: # If start week is unknown for a user, replace '[starting_file]' with 'len(files)'
             all_data = pd.DataFrame(columns=header_list)
             found_start_of_week = False
             #print('Starting at {} out of {}'.format(start_file, len(files)))
@@ -63,14 +63,16 @@ def load_data(specific_user=None, starting_file=None, n_weeks=None, max_users=No
                     if max_days_per_user and cur_day == max_days_per_user:
                         break
     
-            # Check if resulting dataframe is larger current max
+            # Check if resulting dataframe is larger than current max
             if all_data.shape[0] > final_data.shape[0]:
                 #print('Old length: {}'.format(final_data.shape[0]))
                 #print('  Updated: {}'.format(all_data.shape[0]))
                 found_start_of_week = False
                 final_data = all_data
                 final_start_file = start_file
-   
+
+    # Prints the resulting start file for the user
+    print('Final start file: {}'.format(final_start_file))
     final_data = final_data.reset_index()
     return final_data
 
@@ -147,25 +149,11 @@ def get_centroids(df, show=False):
             data = labels[label][axis]
             labels[label][axis] = sum(data)/len(data)
 
-    """ Don't need to do this
-    # Replace old datapoints with new averages
-    points = {}
-    for point in df.itertuples():
-        label = point.cluster_label
-        if label == -1:
-            continue
-        df.loc[point.Index, 'long'] = labels[label]['long']
-        df.loc[point.Index, 'lat'] = labels[label]['lat']
-
-    print("points:", len(set(df['long'])))
-    print("points:", len(set(df['lat'])))
-    """
-
     # Make new df of centroids
     centroids_df = pd.DataFrame()
     longs = []
     lats = []
-    del labels[-1]
+    del labels[-1] # if '-1', not mapped by DB_SCAN, therefore delete points
     for label in labels:
         longs.append(labels[label]['long'])
         lats.append(labels[label]['lat'])
@@ -186,46 +174,8 @@ def show_centroids(df, centroids_df):
     plt.title('Centroids')
     plt.show()
 
-""" TODO(Joel): Get this plot to work.
-    # Plot up the results!
-    fig = plt.figure(figsize=(12,6))
-    data = np.float32((np.concatenate([df['long'].tolist()]), np.concatenate([df['lat'].tolist()]))).transpose()
-
-    min_x = np.min(data[:, 0])
-    max_x = np.max(data[:, 0])
-    min_y = np.min(data[:, 1])
-    max_y = np.max(data[:, 1])
-
-    core_samples_mask = np.zeros_like(df['cluster_label'], dtype=bool)
-    core_samples_mask[df.index[df['cluster_label'] != -1]] = True
-    # The following is just a fancy way of plotting core, edge and outliers
-    # Credit to: http://scikit-learn.org/stable/auto_examples/cluster/plot_dbscan.html#sphx-glr-auto-examples-cluster-plot-dbscan-py
-    colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(centroids_df['lat']))]
-    for k, col in zip(centroids_df['lat'], colors):
-        if k == -1:
-            # Black used for noise.
-            col = [0, 0, 0, 1]
-
-        class_member_mask = (df['cluster_label'].tolist() == k)
-        xy = data[class_member_mask & core_samples_mask]
-        plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-                 markeredgecolor='k', markersize=7)
-
-        xy = data[class_member_mask & ~core_samples_mask]
-        plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-                 markeredgecolor='k', markersize=3)
-
-    plt.plot(centroids_df['long'], centroids_df['lat'], 'o', markerfacecolor=(0,1,0,1),
-            markeredgecolor='k', markersize=20)
-
-    plt.xlim(min_x, max_x)
-    plt.ylim(min_y, max_y)
-    plt.title('DBSCAN: %d clusters found' % len(centroids_df), fontsize = 20)
-    fig.tight_layout()
-    plt.subplots_adjust(left=0.03, right=0.98, top=0.9, bottom=0.05)
-    plt.show()
-"""
-
+# Unused, but may be used to filter locations based on how long the user has stayed there
+# TODO: Needs updating
 def find_destinations(df, length_of_stay, show=False):
     length_of_stay *= 60 #convert to minutes
     last_time = df['hour'][0]
@@ -281,6 +231,7 @@ def show_destinations(df):
     plt.ylabel('locations')
     plt.show()
 
+# Maps gps coordinate points to discovered centroids
 def map_points(df, centroids_df, max_distance, show=False):
 
     df = df.assign(centroid_index=pd.Series([None]*len(df), dtype=pd.Int64Dtype()))
@@ -344,7 +295,8 @@ def map_points(df, centroids_df, max_distance, show=False):
         plt.show()
     
     return new_df
-    
+
+# Seperates the big df into small dfs, where each df represents a path
 def get_paths(df):
 
     dfs = []
@@ -377,10 +329,6 @@ def prepare_data(df):
     df = cluster_points(df, eps, min_samples)
     centroids_df = get_centroids(df)
     
-    """ TODO(joel): Check to see if we'll ever need this
-    # Find destinations based on 30 min stays
-    # destinations_df = find_destinations(df, .5)
-    """
     # Map points to centroids
     max_distance = .00001
     df = map_points(df, centroids_df, max_distance)
@@ -441,6 +389,7 @@ class HMM:
 
         return transitions
 
+    # Currently unused
     def get_emission_probabilities(self, dfs):
         n_hours = 24
         emissions = [[0 for _ in range(n_hours)] for _ in range(max(max(df['centroid_index'].tolist()) for df in dfs)+1)]
@@ -455,27 +404,48 @@ class HMM:
 
         return emissions
 
+
+def plot_final_accuracies(bars1, bars2, bars3):
+    # set width of bar
+    barWidth = 0.25
+ 
+    # Set position of bar on X axis
+    r1 = np.arange(len(bars1))
+    r2 = [x + barWidth for x in r1]
+    r3 = [x + barWidth for x in r2]
+ 
+    # Make the plot
+    plt.bar(r1, bars1, color='#7f6d5f', width=barWidth, edgecolor='white', label='var1')
+    plt.bar(r2, bars2, color='#557f2d', width=barWidth, edgecolor='white', label='var2')
+    plt.bar(r3, bars3, color='#2d7f5e', width=barWidth, edgecolor='white', label='var3')
+ 
+    # Add xticks on the middle of the group bars
+    plt.xlabel('User', fontweight='bold')
+    plt.ylabel('Accuracy', fontweight='bold')
+    plt.xticks([r + barWidth for r in range(len(bars1))], ['157', '017', '153'])
+ 
+    # Create legend & Show graphic
+    plt.legend()
+    plt.show()
+
+# Users to run HMM on
+users = ['125', '017', '153']
+# These starting files were chosen such that they result in the most amount of available data for a 2 week timeframe
 starting_files = [32, 320, 528]
+# Timeframe for each run
+weeks = [2, 4, 8]
+
+# Resulting accuracues per user for each timeframe
+weeks_2_accuracies = []
+weeks_4_accuracies = []
+weeks_8_accuracies = []
 if __name__ == "__main__":
-    for i, user in enumerate(['125', '017', '153']):
+    for i, user in enumerate(users):
         print('User: {}'.format(user))
-        for n_weeks in [2, 4, 8]:
+        for n_weeks in weeks:
             print('  Weeks: {}'.format(n_weeks))
-            data = load_data(specific_user=user, starting_file=starting_files[i], n_weeks=n_weeks)
+            data = load_data(specific_user=users[i], starting_file=starting_files[i], n_weeks=n_weeks)
             train_dfs, test_dfs = prepare_data(data)
-            """ 
-            with open('train_dfs.data', 'wb') as f:
-                pickle.dump(train_dfs, f)
-
-            with open('test_dfs.data', 'wb') as f:
-                pickle.dump(test_dfs, f)
-    
-            with open('train_dfs.data', 'rb') as f:
-                train_dfs = pickle.load(f)
-
-            with open('test_dfs.data', 'rb') as f:
-                test_dfs = pickle.load(f)
-            """
             hmm = HMM()
             hmm.train(train_dfs)
             predictions = hmm.predict(test_dfs)
@@ -485,4 +455,13 @@ if __name__ == "__main__":
                 if prediction[0] == prediction[1]:
                     correct += 1
             accuracy = correct/len(predictions)
-            print('    Accuracy: {}'.format(accuracy))
+            if n_weeks == 2:
+                weeks_2_accuracies.append(accuracy)
+            elif n_weeks == 4:
+                weeks_4_accuracies.append(accuracy)
+            if n_weeks == 8:
+                weeks_8_accuracies.append(accuracy)
+    
+    # Creates a group barplot of accuracies per timeframe for each user
+    plot_final_accuracies(weeks_2_accuracies, weeks_4_accuracies, weeks_8_accuracies)
+
