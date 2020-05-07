@@ -17,6 +17,10 @@ def load_data(specific_user=None, starting_file=None, n_weeks=None, max_users=No
         _dir = 'GeolifeTrajectories1.3/Data'
     else:
         _dir = 'GeolifeTrajectories1.3/Data/{}/Trajectory'.format(specific_user)
+    if not n_weeks:
+        n_weeks = 999999 # Use all available data
+
+    # Begin walk down tree
     for (root, dirs, files) in os.walk(_dir, topdown=True):
         if max_users and cur_user == max_users:
             break
@@ -28,10 +32,12 @@ def load_data(specific_user=None, starting_file=None, n_weeks=None, max_users=No
             start_of_week = None
             seconds_in_week = 604800
             
-        # Find start week that will lead to most data in given timespan
+        # Find start file (day) that will lead to most data in given timespan
         final_data = pd.DataFrame()
         final_start_file = 0
-        for start_file in [starting_file]: # If start week is unknown for a user, replace '[starting_file]' with 'len(files)'
+	if starting_file:
+            files = [starting_file]
+        for start_file in files:
             all_data = pd.DataFrame(columns=header_list)
             found_start_of_week = False
             #print('Starting at {} out of {}'.format(start_file, len(files)))
@@ -356,21 +362,6 @@ class HMM:
         # Get transition probabilities
         #self.emissions = self.get_emission_probabilities(dfs)
 
-    def predict(self, dfs):
-        predictions = []
-        for i, df in enumerate(dfs):
-            if df.shape[0] in (0, 1):
-                continue
-            last_location = df['centroid_index'][df.shape[0]-2] # -2 in order to get location before last one
-            if last_location >= len(self.transitions):
-                prediction = -1
-            else:
-                prediction = self.transitions[last_location].index(max(self.transitions[last_location]))
-            truth = df['centroid_index'][df.shape[0]-1]
-            predictions.append([prediction, truth])
-        
-        return predictions
-
     def get_transition_probabilities(self, dfs):
 
         n_centroids = max(max(df['centroid_index'].tolist()) for df in dfs)+1
@@ -404,6 +395,21 @@ class HMM:
 
         return emissions
 
+    def predict(self, dfs):
+        predictions = []
+        for i, df in enumerate(dfs):
+            if df.shape[0] in (0, 1):
+                continue
+            last_location = df['centroid_index'][df.shape[0]-2] # -2 in order to get location before last one
+            if last_location >= len(self.transitions):
+                prediction = -1
+            else:
+                prediction = self.transitions[last_location].index(max(self.transitions[last_location]))
+            truth = df['centroid_index'][df.shape[0]-1]
+            predictions.append([prediction, truth])
+        
+        return predictions
+
 
 def plot_final_accuracies(bars1, bars2, bars3):
     # set width of bar
@@ -435,7 +441,7 @@ starting_files = [32, 320, 528]
 # Timeframe for each run
 weeks = [2, 4, 8]
 
-# Resulting accuracues per user for each timeframe
+# Resulting accuracies per user for each timeframe
 weeks_2_accuracies = []
 weeks_4_accuracies = []
 weeks_8_accuracies = []
